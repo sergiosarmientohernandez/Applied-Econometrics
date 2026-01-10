@@ -16,3 +16,6 @@ Esta carpeta contiene ejercicios de econometría aplicada con Variables Instrume
 ## Archivos
 - `retornos_educacion.Rmd`: análisis principal y réplica
 - `Proyecto_de_Ciencia_de_Datos.pdf`: informe final (resultado compilado)
+
+## Nota
+- Los datos no están incluidos en este repositorio.
