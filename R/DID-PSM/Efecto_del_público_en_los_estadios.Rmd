@@ -1,0 +1,542 @@
+---
+title: "Proyecto microeconometría"
+author: "Sergio Sarmiento y Diego Monroy"
+date: "2025-12-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+rm(list = ls())
+
+knitr::opts_chunk$set(
+echo = TRUE,
+message = FALSE,
+warning = FALSE
+)
+
+library(readr)
+library(dplyr)
+library(lubridate)
+library(fixest)
+library(broom)
+library(stringr)
+library(ggplot2)
+library(knitr)
+library(kableExtra)
+```
+
+```{R,datos}
+# Cargar datos
+#Data not included: Data can be obtained from: https://www.football-data.co.uk/mexico.php
+
+#glimpse(mx)
+```
+
+```{R}
+#ver datos: 
+
+# Ver nombres de columnas
+names(mx)
+
+# Ver primeras filas
+head(mx, 5)
+```
+
+```{R, no público}
+
+# 1) Parsear la columna Date tal como viene (dd/mm/yyyy)
+mx <- mx %>%
+  mutate(
+    Date = dmy(Date)   # convierte "21/07/2012" -> 2012-07-21
+  )
+
+# sanity checks
+range(mx$Date, na.rm = TRUE)
+
+# 2) Crear no_publico con base en Date
+mx <- mx %>%
+  mutate(
+    no_publico = if_else(
+      Date >= as.Date("2020-03-15") & Date <= as.Date("2021-06-30"),
+      1L, 0L
+    )
+  )
+
+table(mx$no_publico)
+```
+
+```{R, Varaible Y}
+mx <- mx %>%
+  mutate(
+    puntos_local = case_when(
+      Res == "H" ~ 3L,
+      Res == "D" ~ 1L,
+      Res == "A" ~ 0L,
+      TRUE ~ NA_integer_
+    )
+  )
+
+# chequeo rápido
+table(mx$Res, mx$puntos_local, useNA = "ifany")
+```
+
+
+```{R, probabilidad del local}
+mx <- mx %>%
+  mutate(
+    pH_raw = 1 / PSCH,
+    pD_raw = 1 / PSCD,
+    pA_raw = 1 / PSCA,
+    p_sum = pH_raw + pD_raw + pA_raw,
+    p_local = pH_raw / p_sum
+  )
+
+# sanity check
+summary(mx$p_local)
+```
+
+```{R, estadísticas descrptivas}
+desc_stats <- mx %>%
+  mutate(
+    periodo = if_else(no_publico == 1, "Sin público", "Con público"),
+    win_local = as.integer(Res == "H"),
+    empate    = as.integer(Res == "D"),
+    win_vis   = as.integer(Res == "A")
+  ) %>%
+  group_by(periodo) %>%
+  summarise(
+    Partidos = n(),
+    # Resultados (porcentaje)
+    "% Local"    = 100 * mean(win_local, na.rm = TRUE),
+    "% Empate"   = 100 * mean(empate, na.rm = TRUE),
+    "% Visitante"= 100 * mean(win_vis, na.rm = TRUE),
+    # Puntos y goles
+    "Puntos local (prom.)" = mean(puntos_local, na.rm = TRUE),
+    "Goles local (prom.)"  = mean(HG, na.rm = TRUE),
+    "Goles rival (prom.)"  = mean(AG, na.rm = TRUE),
+    # Probabilidades implícitas
+    "p_local (prom.)" = mean(p_local, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+desc_stats
+```
+
+```{R}
+didsc <- feols(
+  puntos_local ~ no_publico |Season,
+  data = mx,
+  vcov = "HC1"
+)
+cat("===Modelo sin controles=== \n")
+summary(didsc)
+
+did2 <- feols(
+  puntos_local ~ no_publico + p_local | Season,
+  data = mx,
+  vcov = "HC1"
+)
+cat ("===Modelo robusto HC1=== \n")
+summary(did2)
+
+did_tw <- feols(
+  puntos_local ~ no_publico + p_local | Season,
+  data = mx,
+  vcov = ~ Home + Date   # ajusta Home al nombre real del equipo local
+)
+cat("===Modeolo cluster a nivel equipo y fechas=== \n")
+summary(did_tw)
+```
+
+Para la primera especificación con errores estandar agrupados a nivel temporada da: 
+no_publico	0.09789   0.56783
+
+Para la segunda especificación con errores estandar robustos HC1 da: 
+no_publico	0.052723	0.489450	
+
+Para la tercera especificación con cluster a nivel equipo y a nivel fecha da: 
+no_publico	0.052723	0.075108
+
+
+```{R}
+#Especificación sin control
+
+didsc <- feols(
+  puntos_local ~ no_publico |Season,
+  data = mx,
+  vcov = "HC1"
+)
+summary(didsc)
+
+
+didefh <- feols(
+  puntos_local ~ no_publico * p_local | Season,
+  data = mx,
+  vcov = "HC1"
+)
+summary(didefh)
+```
+
+
+```{R}
+
+goals1 <- feols(
+  HG ~ no_publico + p_local | Season, #HG = goles del local
+  data = mx,
+  vcov = "HC1"
+)
+
+summary(goals1)
+
+goals2 <- feols(
+  HG ~ no_publico | Season, #HG = goles del local
+  data = mx,
+  vcov = "HC1"
+)
+
+summary(goals2)
+
+gec <- feols(
+  AG ~ no_publico + p_local | Season, #AG = Goles del visitante 
+  data = mx,
+  vcov = "HC1"
+)
+summary(gec)
+
+gec2 <- feols(
+  AG ~ no_publico | Season, #AG = Goles del visitante
+  data = mx,
+  vcov = "HC1"
+)
+summary(gec2)
+```
+
+```{R}
+library(modelsummary)
+
+models <- list(
+  "(1) Goles del local (SC)"      = goals2,
+  "(2) Goles del local (CC)"      = goals1,
+  "(3) Goles del rival (SC)"      = gec2, 
+  "(4) Goles del rival (CC)"      =gec
+)
+
+modelsummary(
+  models,
+  output = "latex",
+  coef_map = c(
+    "no_publico" = "No público",
+    "p_local"    = "$p_{local}$"
+  ),
+  gof_map = c("nobs", "r.squared", "adj.r.squared"),
+  stars = TRUE
+)
+
+```
+
+**=====Gráfica estudio de eventos=====**
+
+```{R}
+event_date <- as.Date("2020-03-15")
+
+mx <- mx %>%
+  mutate(
+    rel_week = floor(as.numeric(Date - event_date) / 7)
+  )
+
+table(mx$rel_week, mx$no_publico)
+
+mx_es <- mx %>%
+  filter(rel_week >= -20 & rel_week <= 20)
+
+es_mod <- feols(
+  puntos_local ~ i(rel_week, ref = -1) + p_local | Season,
+  data = mx_es,
+  vcov = "HC1"
+)
+
+#summary(es_mod)
+
+# Extraer coeficientes del event study
+es_df <- tidy(es_mod, conf.int = TRUE) %>%
+  filter(str_detect(term, "rel_week")) %>%
+  mutate(
+    rel_week = as.integer(str_extract(term, "-?\\d+"))
+  ) %>%
+  arrange(rel_week)
+
+# Gráfica de tendencias paralelas (event study)
+ggplot(es_df, aes(x = rel_week, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+  geom_vline(xintercept = -1, linetype = "dotted", color = "gray40") +
+  geom_point(size = 2) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.2
+  ) +
+  labs(
+    x = "Semanas relativas al inicio de partidos sin público",
+    y = "Efecto sobre puntos del local",
+    title = "Event study: impacto del cierre de estadios (COVID-19)"
+  ) +
+  theme_minimal()
+```
+
+```{r event_study_bins}
+
+# Fecha del evento
+event_date <- as.Date("2020-03-15")
+
+# Tiempo relativo en semanas y BIN mensual (cada 4 semanas)
+mx <- mx %>%
+  mutate(
+    rel_week  = floor(as.numeric(Date - event_date) / 7),
+    rel_month = floor(rel_week / 4)
+  )
+
+# Ventana del event study (20 semanas = 5 meses antes y después)
+mx_es <- mx %>%
+  filter(rel_month >= -10 & rel_month <= 10)
+
+# Event study con bins mensuales
+es_mod <- feols(
+  puntos_local ~ i(rel_month, ref = -1) + p_local | Season,
+  data = mx_es,
+  vcov = "HC1"
+)
+
+# Extraer coeficientes
+es_df <- tidy(es_mod, conf.int = TRUE) %>%
+  filter(str_detect(term, "rel_month")) %>%
+  mutate(
+    rel_month = as.integer(str_extract(term, "-?\\d+"))
+  ) %>%
+  arrange(rel_month)
+
+# Gráfica de tendencias paralelas (event study binned)
+ggplot(es_df, aes(x = rel_month, y = estimate)) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+  geom_vline(xintercept = -1, linetype = "dotted", color = "gray40") +
+  geom_point(size = 2) +
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.15
+  ) +
+  labs(
+    x = "Meses relativos al inicio de partidos sin público",
+    y = "Efecto sobre puntos del local",
+    title = "Event study: cierre de estadios por COVID-19"
+  ) +
+  theme_minimal()
+
+
+ggplot(es_df, aes(x = rel_month, y = estimate)) +
+  # Línea horizontal en cero
+  geom_hline(yintercept = 0, color = "black", size = 0.6) +
+  
+  # Línea vertical en el periodo base (−1)
+  geom_vline(xintercept = -1, linetype = "dashed", color = "red", size = 0.7) +
+  
+  # Línea que conecta coeficientes
+  geom_line(color = "black", size = 0.6) +
+  
+  # Puntos
+  geom_point(color = "black", size = 2) +
+  
+  # Intervalos de confianza (estilo rojo)
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.15,
+    color = "firebrick",
+    size = 0.8
+  ) +
+  
+  # Etiquetas (estilo paper)
+  labs(
+    x = "Meses relativos al inicio de partidos sin público",
+    y = "Coeficiente",
+    title = "Impacto del cierre de estadios (COVID-19)"
+  ) +
+  
+  # Tema tipo artículo
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black")
+  )
+```
+
+
+```{r tendencias_plot}
+library(dplyr)
+library(ggplot2)
+
+event_date <- as.Date("2020-03-15")
+
+mx_trends <- mx %>%
+  mutate(
+    month = as.Date(cut(Date, "month")),
+    periodo = if_else(Date < event_date, 
+                      "Pre-pandemia (contrafactual)", 
+                      "Pandemia (tratamiento)")
+  ) %>%
+  group_by(month, periodo) %>%
+  summarise(
+    puntos_local = mean(puntos_local, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(mx_trends, aes(x = month, y = puntos_local, color = periodo)) +
+  geom_line(size = 1.1) +
+  geom_vline(xintercept = event_date, linetype = "dashed", color = "black") +
+  annotate("text", x = event_date, y = max(mx_trends$puntos_local),
+           label = "Inicio partidos sin público", hjust = -0.1, size = 3) +
+  labs(
+    x = "Tiempo",
+    y = "Puntos promedio del equipo local",
+    color = "",
+    title = "Tendencias en puntos del equipo local",
+    subtitle = "La tendencia pre-pandemia funciona como contrafactual"
+  ) +
+  theme_minimal()
+```
+
+
+  ***=====PSM + DID=====***
+  
+```{r psm_did}
+# ===============================
+# PSM + DID: Partidos sin público
+# ===============================
+
+# Librerías
+library(dplyr)
+library(MatchIt)
+library(cobalt)
+library(fixest)
+
+# -------------------------------
+# 1) Preparar datos
+# -------------------------------
+mx_psm <- mx %>%
+  filter(
+    !is.na(no_publico),
+    !is.na(p_local),
+    !is.na(puntos_local),
+    !is.na(Season),
+    !is.na(Home),
+    !is.na(Date)
+  )
+
+# -------------------------------
+# 2) Propensity Score Matching
+# -------------------------------
+m_out <- matchit(
+  no_publico ~ p_local,
+  data     = mx_psm,
+  method   = "nearest",
+  distance = "logit",
+  caliper  = 0.05,
+  ratio    = 1,
+  replace  = TRUE
+)
+
+# Resumen del matching
+summary(m_out)
+
+# Chequeo de balance
+bal.tab(m_out, un = TRUE)
+
+love.plot(
+  m_out,
+  stats = "mean.diffs",
+  abs = TRUE,
+  thresholds = c(m = 0.1)
+)
+
+# -------------------------------
+# 3) Extraer muestra emparejada
+# -------------------------------
+mx_m <- match.data(m_out)
+
+# -------------------------------
+# 4) DID sobre muestra emparejada
+# -------------------------------
+did_psm <- feols(
+  puntos_local ~ no_publico + p_local | Season,
+  data    = mx_m,
+  weights = ~ weights,
+  vcov    = ~ Home + Date
+)
+
+summary(did_psm)
+
+# -------------------------------
+# 5) Event study PSM+DID
+# -------------------------------
+event_date <- as.Date("2020-03-15")
+
+mx_m <- mx_m %>%
+  mutate(rel_month = floor(as.numeric(Date - event_date) / 30))
+
+mx_m_es <- mx_m %>%
+  filter(rel_month >= -8 & rel_month <= 9)
+
+es_psm <- feols(
+  puntos_local ~ i(rel_month, ref = -1) + p_local | Season,
+  data    = mx_m_es,
+  weights = ~ weights,
+  vcov    = ~ Home + Date
+)
+
+summary(es_psm)
+
+es_psm_df <- tidy(es_psm, conf.int = TRUE) %>%
+  filter(str_detect(term, "rel_month")) %>%
+  mutate(
+    rel_month = as.integer(str_extract(term, "-?\\d+"))
+  ) %>%
+  arrange(rel_month)
+# -------------------------------
+# Event study 2
+# -------------------------------
+
+ggplot(es_psm_df, aes(x = rel_month, y = estimate)) +
+  # Línea horizontal en cero
+  geom_hline(yintercept = 0, color = "black", size = 0.6) +
+  
+  # Línea vertical en el periodo base (−1)
+  geom_vline(xintercept = -1, linetype = "dashed", color = "red", size = 0.7) +
+  
+  # Línea que conecta coeficientes
+  geom_line(color = "black", size = 0.6) +
+  
+  # Puntos
+  geom_point(color = "black", size = 2) +
+  
+  # Intervalos de confianza (estilo rojo)
+  geom_errorbar(
+    aes(ymin = conf.low, ymax = conf.high),
+    width = 0.15,
+    color = "firebrick",
+    size = 0.8
+  ) +
+  
+  # Etiquetas (estilo paper)
+  labs(
+    x = "Meses relativos al inicio de partidos sin público",
+    y = "Coeficiente",
+    title = "(PSM + DID): cierre de estadios por COVID-19"
+  ) +
+  
+  # Tema tipo artículo
+  theme_classic(base_size = 13) +
+  theme(
+    plot.title = element_text(hjust = 0.5),
+    axis.line = element_line(color = "black"),
+    axis.ticks = element_line(color = "black"),
+    axis.text = element_text(color = "black")
+  )
+```
