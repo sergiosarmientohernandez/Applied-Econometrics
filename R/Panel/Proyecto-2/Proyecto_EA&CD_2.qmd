@@ -1,0 +1,336 @@
+---
+title: "Proyecto 2 econometría aplicada y ciencia de datos "
+lang: es
+author: "Sergio Sarmiento Hernández" 
+date: last-modified
+format:
+  pdf:
+    number-sections: true
+    colorlinks: true
+    fontsize: 12pt
+    linestretch: 1.2
+    geometry:
+      - top=20mm
+      - left=20mm
+      - heightrounded
+    header-includes:
+      - \usepackage{float}
+      - \floatplacement{table}{H}
+link-citations: true
+linkcolor: blue
+---
+
+```{R, preambulo}
+#| include: false
+#| warning: false
+#| message: false
+knitr::opts_chunk$set(echo = FALSE,
+                      warning = FALSE,
+                      message = FALSE) 
+
+rm(list = ls()) 
+cat("\014")     
+
+# Paquetes
+library(haven)   
+library(dplyr)   
+library(ggplot2)
+library(tidyr)
+library(stringr)
+library(tidyverse)
+library(gt)
+library(modelsummary)
+library(lmtest)
+library(sandwich)
+library(plm)
+```
+
+```{R, datos}
+#| message: false
+#| warning: false
+
+path  <- # Data not included
+Path <- normalizePath(path, mustWork = TRUE)
+Data <- read_dta(Path)
+
+data <- Data %>%
+  mutate(
+    across(starts_with("child18num_"),
+           ~ haven::zap_labels(.x) |> as.numeric())
+  )
+
+cat_vars <- c("CC10_308a","CC12_308a","CC14_308a",
+              "marstat_10","marstat_12","marstat_14",
+              "employ_10","employ_12","employ_14")
+
+data <- data %>%
+  mutate(
+    across(all_of(intersect(cat_vars, names(.))),
+           ~ haven::as_factor(.x, levels = "label"))
+  )
+
+#data %>% select(starts_with("child18num_")) %>% summary()
+```
+
+# Modelo propuesto:
+
+    El presente modelo busca estimar la diferencia en la proporción promedio de aprobación entre empleados y no empleados, controlando por $X_{it}$$$
+y_{it}= \alpha_i + \beta_1 empleo_{it} + BX_{it} + \epsilon_{it}
+$$Donde, el vector de controles $X_{it}$ incluye variables como, si la persona $i$ en el periodo $t$ está casada y el número de hijos menores a 18 años de la persona $i$ en el periodo $t$.
+
+    El modelo presentado anteriormente será estimado a partir de 3 estimadores diferentes. El primer modelo es el dado por el estimador pooled (o agrupado), dicho estimador nos ayudaría a comparar directamente empleados con no empleados en toda la muestra, como si fuera un solo corte transversal. Por otro lado, el segundo modelo será estimado por efectos aleatorios (RE), usar este estimador nos perimitrá aprovechar tanto la variación entre individuos como la variación dentro de los individuos en el tiempo, de esta forma obendríamos la relación entre empleo y aprobación al presidente de manera más eficientes, siempre y cuando se cumplan los supuestos de dicho estimador. Por último, se usará el estimador de efectos fijos (FE), este estimador nos ayudará a observar cómo cambia la aprobación presidencial de una misma persona cuando cambia su estatus laboral en el tiempo, al eliminar el sesgo por características individuales constantes $(\alpha_i)$​, lo que permitirá tener un efecto más limpio del empleo sobre la aprobación.
+
+    La creación de las variables de interés $y_{it}$ (aprobación del presidente) y $empleo_{it}$ están determinadas de la siguiente manera. Por un lado, la aprobación del presidente fue tomada como una variable binaria, donde $y_{it} =1$ sí el individuo $i$ en el año $t$ respondió "Strongly Approve" o "Somewhat Approve" en el momento de la encuesta, $y_{it}$ es igual a cero en cualquier otro caso. De igual forma, la variable empleo es una variable binaria, donde $empleo_{it}$ es igual a uno sí la persona respondió que estaba empleado a tiempo completo (FT) o a tiempo parcial (PT) en el año $t$, en cualquier otro caso es cero.
+
+```{R, construcción de y_{it}}
+
+#| label: recode-approval
+#| message: false
+#| warning: false
+
+recode_approval <- function(x) {
+  case_when(
+    x %in% c("Strongly Approve", "Somewhat Approve") ~ 1,
+     TRUE ~ 0
+  )
+}
+
+data <- data %>%
+  mutate(
+    y2010 = recode_approval(CC10_308a),
+    y2012 = recode_approval(CC12_308a),
+    y2014 = recode_approval(CC14_308a)
+  )
+
+#data %>% select(CC10_308a, y2010, CC12_308a, y2012, CC14_308a, y2014) %>% head()
+
+
+```
+
+```{R, variable empleo}
+#| label: recode-employment
+#| message: false
+#| warning: false
+
+recode_employment <- function(x) {
+  if (haven::is.labelled(x)) x <- haven::as_factor(x, levels = "label")
+  xl <- str_trim(as.character(x))
+  dplyr::case_when(
+    xl %in% c("Full-time", "Part-time") ~ 1,
+    TRUE ~ 0
+  )
+}
+
+data <- data %>%
+  mutate(
+    empleo2010 = recode_employment(employ_10),
+    empleo2012 = recode_employment(employ_12),
+    empleo2014 = recode_employment(employ_14)
+  )
+
+#data %>% select(employ_10, empleo2010, employ_12, empleo2012, employ_14, empleo2014) %>% head()
+
+```
+
+```{R, Controles}
+#| label: controls
+#| message: false
+#| warning: false
+
+recode_marstat <- function(x) {
+  case_when(
+    x %in% c("Married", "Domestic partnership") ~ 1,
+    TRUE ~ 0
+  )
+}
+
+recode_marstat <- function(x) {
+  case_when(
+    x %in% c("Married", "Domestic partnership") ~ 1,
+    TRUE ~ 0
+  )
+}
+data <- data %>%
+  mutate(
+    marstat2010 = recode_marstat(marstat_10),
+    marstat2012 = recode_marstat(marstat_12),
+    marstat2014 = recode_marstat(marstat_14),
+    
+    child2010 = as.numeric(child18num_10),
+    child2012 = as.numeric(child18num_12),
+    child2014 = as.numeric(child18num_14)
+  )
+
+#data %>% select(starts_with("marstat20"), starts_with("child20")) %>% head()
+```
+
+# Gráficas de estadísticas descriptivas:
+
+    Por un lado, se presenta primero la gráfica de la proporción de empleo en los años 2010, 2012 y 2014:
+
+```{R, gráfica población empleada}
+#| label: plot-employment
+#| fig-cap: "Distribución de empleo por año"
+#| warning: false
+#| message: false
+
+empleo_long <- data %>%
+  select(empleo2010, empleo2012, empleo2014) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "year",
+    values_to = "empleo"
+  ) %>%
+  mutate(
+    year = case_when(
+      year == "empleo2010" ~ "2010",
+      year == "empleo2012" ~ "2012",
+      year == "empleo2014" ~ "2014"
+    ),
+    
+    empleo = factor(empleo, levels = c(0, 1),
+                    labels = c("No empleado", "Empleado"))
+  )
+
+empleo_summary <- empleo_long %>%
+  group_by(year, empleo) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(year) %>%
+  mutate(prop = n / sum(n))
+
+# Gráfica
+ggplot(empleo_summary, aes(x = year, y = prop, fill = empleo)) +
+  geom_col(position = "fill") +
+  scale_fill_manual(values = c("Empleado" = "blue", "No empleado" = "red")) +
+  labs(
+    title = "Distribución de empleo por año",
+    x = "Año",
+    y = "Proporción",
+    fill = "Estatus"
+  ) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal(base_size = 13)
+```
+
+Esta primera gráfica muestra que de la población encuestada durante estos tres años, hay una proporción similar de personas empleadas y no empleadas. De igual forma, es visible que a lo largo de este periodo de tres años la población empleada disminuyó ligeramente. Además, la composición es bastante estable: en 2010 aproximadamente 5 de cada 10 reportan empleo de tiempo completo o parcial y para 2014 esa proporción baja ampliando levemente la brecha. En suma, la proporción de empleados y no empleado es bastante pareja, con algunas diferencias durante los tres años.
+
+```{R, diagrama de dispersión}
+#| label: barplot-aprobacion
+#| fig-cap: "Porcentaje de aprobación presidencial según empleo"
+#| warning: false
+#| message: false
+
+aprob_long <- data %>%
+  select(empleo2010, empleo2012, empleo2014,
+         y2010, y2012, y2014) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = c(".value", "year"),
+    names_pattern = "(.*)(2010|2012|2014)"
+  )
+
+aprob_summary <- aprob_long %>%
+  filter(!is.na(empleo), !is.na(y)) %>%
+  group_by(year, empleo) %>%
+  summarise(aprobacion = mean(y), .groups = "drop") %>%
+  mutate(empleo = factor(empleo, levels = c(0,1),
+                         labels = c("No empleado","Empleado")))
+
+# Gráfico de barras
+ggplot(aprob_summary, aes(x = empleo, y = aprobacion, fill = empleo)) +
+  geom_col(position = "dodge") +
+  facet_wrap(~year) +
+  scale_y_continuous(labels = scales::percent, limits = c(0,1)) +
+  scale_fill_manual(values = c("No empleado" = "red", "Empleado" = "blue")) +
+  labs(
+    title = "Porcentaje de aprobación presidencial según estatus laboral",
+    x = "Estatus laboral",
+    y = "% de aprobación"
+  ) +
+  theme_minimal(base_size = 11.5) +
+  theme(legend.position = "none")
+```
+
+    A lo largo de los tres años en los que aconteció la encuesta, las personas empleadass muestran una mayor proporción de aprobación que los no empleados, aunque la brecha es pequeña, solo unos puntos porcentuales. La aprobación sube ligeramente de 2010 a 2012 y luego baja en 2014 para ambos grupos. Esto sugiere una asociación positiva pero pequeña entre estar empleado y aprobar al presidente. Aunque en las gráficas podemos ver una relación positiva, es necesario realizar las estimaciones pertinentes para poder obtener conclusiones con fundamentos estadísticos. Más adelante será expuesto si esta relación es positiva o negativa.
+
+# Estimaciones y resultados
+
+```{R, regresiones y tabla}
+# Crear ID de individuo
+id_candidates <- c("caseid","id","respondentid","respondent_id")
+id_var <- intersect(id_candidates, names(data))[1]
+if (is.na(id_var)) { data <- mutate(data, .rowid = dplyr::row_number()); id_var <- ".rowid" }
+
+panel <- data %>%
+  select(any_of(c(
+    id_var,
+    "empleo2010","empleo2012","empleo2014",
+    "y2010","y2012","y2014",
+    "marstat2010","marstat2012","marstat2014",
+    "child2010","child2012","child2014"
+  ))) %>%
+  pivot_longer(
+    cols = -all_of(id_var),
+    names_to = c(".value","year"),
+    names_pattern = "(empleo|y|marstat|child)(2010|2012|2014)"
+  ) %>%
+  mutate(
+    year   = as.integer(year),
+    across(c(y, empleo, marstat, child), ~ as.numeric(.))
+  ) %>%
+  tidyr::drop_na(y, empleo, marstat, child)
+
+# Estimación
+m_pooled <- lm(y ~ empleo + marstat + child, data = panel)
+
+m_re <- plm(
+  y ~ empleo + marstat + child,
+  data  = panel,
+  index = c(id_var, "year"),
+  model = "random",
+  random.method = "swar"
+)
+
+m_fe <- plm(
+  y ~ empleo + marstat + child,
+  data  = panel,
+  index = c(id_var, "year"),
+  model = "within"  
+)
+
+# Matríz de varianza robustas
+V_pooled <- vcovHC(m_pooled, type = "HC1")                     
+V_re     <- vcovHC(m_re, type = "HC1", cluster = "group") 
+V_fe     <- vcovHC(m_fe, type = "HC1", cluster = "group") 
+
+# Tabla 
+coef_map <- c("empleo" = "Empleado",
+              "marstat" = "Casado",
+              "child" = "Hijos menores a 18")
+
+modelsummary(
+  models = list(
+    "Pooled OLS"        = m_pooled,
+    "Efectos aleatorios"= m_re,
+    "Efectos fijos"     = m_fe
+  ),
+  vcov   = list(V_pooled, V_re, V_fe),
+  output = "gt",
+  stars  = c('***'=.01, '**'=.05, '*'=.10),
+  fmt    = 3,
+  coef_map = coef_map,
+  gof_map = c("nobs","r.squared")
+)
+```
+
+## Modelo pooled 
+
+    A partir del estimador pooled obtenemos un estimador $\hat{\beta}=−0.023$ no significativo estadísticamente. Esto es posible interpretarlo como que estar empleado (FT o PT) se asocia con -2.3 puntos porcentuales en la aprobación del presidente respecto a las personas no empleadas. Dicho estimador es consistente bajo el supuesto de exogeneidad estricta $E[\epsilon_{it} \mid empleo_{it}, X_{it}]$ y que el efecto individual no esté correlacionado con los regresores. Por último, los errores estándar usados son robustos a heterocedasticidad.
+
+## Efectos aleatorios
+
+    Por otro lado, el estimador de efectos aleatorios nos da un estimador $\hat{\beta} = -0.02$ sin significancia estadística. La interpretanción de dicho estimador es que estar empleado a tiempo completo o a medio tiempo se asocia, en promedio, con una disminución de -2 p.p. en la aprobación del presidente respecto a las personas no empleadas. Suponemos que tanto la heterogeneidad no observada es una variable aleatoria independiente del $empleo_{it}$, al igual que, el supuesto sobre la heterogeneidad no obvservada con el error son iid ($\alpha_{i}\sim (\alpha, \sigma^2_{\alpha})$ y $\epsilon_{it}\sim(0,\sigma^2_{\epsilon})$) . En este caso, los errores estándar usados en esta estimación son robustos a heterocedasticidad y clusterizados a nivel individuo, esto debido a que el error es compuesto $u_{it}= \alpha_i + \epsilon_{it}$, por lo que las observaciones del mismo individuo están correlacionadas a través de $\alpha_i$, al igual que $\epsilon_{it}$​ puede ser heterocedástico y tener autocorrelación.
+
+## Efectos Fijos
+
+    Por último, el modelo estimado por efectos fijos (FE) nos da una estimador $\hat{\beta}=-0.01$ no significativo. De esta forma, la interpretanción de dicho estimador es que estar empleado a tiempo completo o a medio tiempo se asocia, en promedio, con una disminución de -1.5 p.p. en la aprobación del presidente, respecto a las personas no empleadas. Los supuestos claves para FE son, primero que los efectos individuales están potencialmente correlacionados con el $empleo_{it}$. De igual forma, $\hat{\beta}$ es consistente si los $\alpha_{i}$ son efectos fijos del individuo i y $\epsilon_{it}$ es iid. De la misma forma que en la estimación por efectos aleatorios, usamos errores estándar robustos a heterocedasticidad y clusterizados a nivel individuo, debido a que $\hat{\epsilon}_{it}$ pueden seguir mostrando autocorrelación intra-persona, junto con heterocedasticidad entre individuos.
