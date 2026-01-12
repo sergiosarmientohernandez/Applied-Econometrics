@@ -75,7 +75,7 @@ A continuación se presentan las principales gráficas del proyecto.
 - `Codigo_Ejercicio_Practico.Rmd`: main R Markdown file with the estimation code
 - `Figures`
 
---
+---
 ## Referencias
 La especificación y la estrategia de identificación del VAR se inspiran en la literatura sobre transmisión monetaria para México, en particular:
 
@@ -83,7 +83,7 @@ Capistrán, C., Ibarra, R., & Ramos-Francia, M. (2012).
 *El traspaso de movimientos del tipo de cambio a los precios: un análisis para la economía mexicana*.  
 El Trimestre Económico.
 
---
+---
 ## Nota
 - Data is not included in the repository.
 
