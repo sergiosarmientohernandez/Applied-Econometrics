@@ -72,7 +72,7 @@ A continuación se presentan las principales gráficas del proyecto.
 
 ---
 ## Archivos del proyecto
-- `Codigo_Ejercicio_Practico.Rmd`: main R Markdown file with the estimation code
+- `Código_Ejercicio_Practico.Rmd`: main R Markdown file with the estimation code
 - `Figures`
 
 ---
