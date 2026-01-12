@@ -8,6 +8,7 @@ El presente repositorio contiene aplicaciones de econometr√≠a en projectos acad√
 - Instrumental Variables
 - Propensity Score Matching
 - Machine Learning (Random Forest, Causal Forest)
+- VAR
 
 ## Software
 - R (tidyverse, fixest, did, grf)
