@@ -34,7 +34,7 @@ library(sandwich)
 library(grf)
 library(dplyr)
 library(car)
-#library(wooldridge)
+#library(wooldridge) # for alternative data
 ```
 
 ```{R}
