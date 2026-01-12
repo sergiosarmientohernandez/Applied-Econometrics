@@ -1,6 +1,6 @@
 ---
 title: "Proyecto microeconometría"
-author: "Sergio Sarmiento y Diego Monroy"
+author: "Sergio Sarmiento"
 date: "2025-12-16"
 output: html_document
 ---
