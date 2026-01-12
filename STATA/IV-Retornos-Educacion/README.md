@@ -11,7 +11,7 @@ Esta carpeta contiene un proyecto de econometría aplicada implementado en Stata
 - MCO
 - Variables Instrumentales (MC2E)
 - Diagnóstico de instrumentos débiles
-- Prueba de Hausman
+- Hausman test
 - Prueba de sobreidentificación de Sargan
 
 ## Datos
