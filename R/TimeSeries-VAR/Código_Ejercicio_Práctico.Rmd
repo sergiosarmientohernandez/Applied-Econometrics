@@ -7,8 +7,8 @@ output: html_document
 
 
 ```{r setup}
-rm(list = ls()) #Clears variable environment
-cat("\014")     #Clears console
+rm(list = ls()) 
+cat("\014")     
 
 library(readxl)
 library(dplyr)
@@ -25,7 +25,7 @@ library(tidyr)
 ```
 
 ```{R}
-setwd("/Users/sergiosarmiento/Desktop/Tarea TPyM")
+setwd("--") 
 ```
 
 
@@ -34,7 +34,7 @@ setwd("/Users/sergiosarmiento/Desktop/Tarea TPyM")
 **********************************************************************
 
 ```{R}
-datos <- read_xlsx("/Users/sergiosarmiento/Desktop/Tarea TPyM/VAR.xlsx")
+datos <- read_xlsx("--") #Data not included
 
 # Filtrar solo las columnas necesarias
 datos <- datos %>% select(Date, IGAE, TIIE_28, ER, INPC, IPI, TREASURY, CPI, COMM)
@@ -167,7 +167,7 @@ plot(
 
 
 ```{R}
-lp_raw <- read_excel("/Users/sergiosarmiento/Desktop/Tarea TPyM/LP.xlsx") 
+lp_raw <- read_excel("--") #Data not included
 
 df_lp <- lp_raw %>%
   select(
